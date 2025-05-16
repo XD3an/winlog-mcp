@@ -1,37 +1,3 @@
-"""
-- MCP - Windows log (Pywin32 win32evtlog) 針對 Sysmon
-    - `tool`: ingest_syslog
-    - `tool`: query_syslog
-    - `prompt` : 指導模型如何使用工具
-
-example:
-```
-import win32evtlog
-
-server = 'localhost'  # 或指定遠端主機名稱
-log_type = 'Microsoft-Windows-Sysmon/Operational'  # Sysmon 日誌的通道名稱
-
-# 開啟事件日誌
-handle = win32evtlog.OpenEventLog(server, log_type)
-
-# 設定讀取標誌
-flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
-
-# 讀取事件
-events = True
-while events:
-    events = win32evtlog.ReadEventLog(handle, flags, 0)
-    for event in events:
-        # list all attributes
-        for attr in dir(event):
-            if not attr.startswith('__'):
-                print(f'{attr}: {getattr(event, attr)}')
-        print('-' * 50)
-
-# 關閉事件日誌
-win32evtlog.CloseEventLog(handle)
-```
-"""
 from mcp.server.fastmcp import FastMCP
 import win32evtlog
 import datetime
