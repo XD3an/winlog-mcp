@@ -234,32 +234,4 @@ def prompt_guide():
 
 if __name__ == "__main__":
     mcp.run()
-    # # Sysmon（指定來源）
-    # ingest_syslog(
-    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
-    #     log_name="Microsoft-Windows-Sysmon/Operational",
-    #     source_name="Microsoft-Windows-Sysmon",
-    #     server_name="localhost",
-    #     size=10
-    # )
-    # # Application（抓全部來源）
-    # ingest_syslog(
-    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
-    #     log_name="Application",
-    #     server_name="localhost",
-    #     size=10
-    # )
-    # # Security（抓全部來源）
-    # ingest_syslog(
-    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
-    #     log_name="Security",
-    #     server_name="localhost",
-    #     size=10
-    # )
-    # # System（抓全部來源）
-    # ingest_syslog(
-    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
-    #     log_name="System",
-    #     server_name="localhost",
-    #     size=10
-    # )
+

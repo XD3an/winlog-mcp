@@ -104,9 +104,6 @@ The configuration file is located at:
 Once integrated with Claude Desktop, you can ask Claude to:
 > Please show me the last 10 events in the last 24 hours, and Analyze them.
 
-![Claude Desktop Integration demo](./img/demo.png)
-
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
