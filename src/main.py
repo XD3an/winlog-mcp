@@ -1,10 +1,12 @@
 from mcp.server.fastmcp import FastMCP
 import win32evtlog
+import win32evtlogutil
 import datetime
 import os
 import traceback
 import logging
 import argparse
+import ctypes
 
 
 parser = argparse.ArgumentParser()
@@ -13,8 +15,9 @@ args, unknown = parser.parse_known_args()
 
 class Settings:
     STORAGE_PATH = args.storage_path
-    LOG_TYPE = "Microsoft-Windows-Sysmon/Operational"
-    SERVER = "localhost"
+    LOG_NAME = "Microsoft-Windows-Sysmon/Operational"  # 預設抓 Sysmon 通道
+    SOURCE_NAME = "Microsoft-Windows-Sysmon"           # 預設只抓 Sysmon 來源
+    SERVER_NAME = "localhost"
     SIZE = 10
 
 
@@ -22,72 +25,124 @@ mcp = FastMCP(
     describe="Pywin32 win32evtlog for Retrieval Windows Logs"
 )
 
+
 @mcp.tool()
 def ingest_syslog(
     storage_path: str = Settings.STORAGE_PATH,
-    log_type: str = Settings.LOG_TYPE,
-    server: str = Settings.SERVER,
+    source_name: str = Settings.SOURCE_NAME,
+    log_name: str = Settings.LOG_NAME,
+    server_name: str = Settings.SERVER_NAME,
     size: int = Settings.SIZE
 ):
     """
-    Ingest Windows Sysmon logs
+    Ingest Windows logs
 
     Args:
         storage_path (str): log storage path
-        log_type (str, optional): log type. Defaults to "Microsoft-Windows-Sysmon/Operational".
-        server (str, optional): server. Defaults to "localhost".
+        source_name (str, optional): event source name. Empty string means no filter (all sources).
+        log_name (str, optional): event log name. Defaults to "Microsoft-Windows-Sysmon/Operational".
+        server_name (str, optional): server. Defaults to "localhost".
         size (int, optional): number of log lines to return
 
     Returns:
         str: log content
     """
+
     try:
+        if os.path.isfile(storage_path):
+            return f"ERROR: storage_path points to a file instead of a directory ({storage_path}), please use a directory path."
         os.makedirs(storage_path, exist_ok=True)
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        safe_log_type = log_type.replace("/", "_").replace("\\", "_")
-        dest_file = os.path.join(storage_path, f"{timestamp}_{safe_log_type}.log")
+        safe_log_name = log_name.replace("/", "_").replace("\\", "_")
+        dest_file = os.path.join(storage_path, f"{timestamp}_{safe_log_name}.log")
 
-        handle = win32evtlog.OpenEventLog(server, log_type)
-        flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
-        written = 0
+        # Check admin privileges
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            return "ERROR: Administrator privileges required."
 
-        with open(dest_file, "a", encoding="utf-8") as f:
-            events = True
-            while events and written < size:
-                events = win32evtlog.ReadEventLog(handle, flags, 0)
-                if not events:
-                    break
-                for event in events:
-                    details = {attr: getattr(event, attr) for attr in dir(event) if not attr.startswith("__")}
-                    timewritten = details.get("TimeWritten")
-                    if hasattr(timewritten, "isoformat"):
-                        details["TimeWritten"] = timewritten.isoformat()
-                    f.write(str(details) + "\n")
-                    written += 1
-                    if written >= size:
+        if log_name == "Microsoft-Windows-Sysmon/Operational":
+            # Use EvtQuery for Sysmon log
+            flags = win32evtlog.EvtQueryReverseDirection
+            query = f"*[System/Provider/@Name='{source_name or 'Microsoft-Windows-Sysmon'}']"
+            handle = win32evtlog.EvtQuery(log_name, flags, query)
+            events = 1
+            written = 0
+            with open(dest_file, "a", encoding="utf-8") as f:
+                while events and written < size:
+                    events = win32evtlog.EvtNext(handle, 1)
+                    if not events:
                         break
+                    for event in events:
+                        xml = win32evtlog.EvtRender(event, win32evtlog.EvtRenderEventXml)
+                        f.write(xml + "\n")
+                        written += 1
+                        if written >= size:
+                            break
+        else:
+            # Use OpenEventLog for other logs
+            handle = win32evtlog.OpenEventLog(server_name, log_name)
+            flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
+            written = 0
+            with open(dest_file, "a", encoding="utf-8") as f:
+                events = True
+                while events and written < size:
+                    events = win32evtlog.ReadEventLog(handle, flags, 0)
+                    if not events:
+                        break
+                    for event in events:
+                        # If source_name is empty, do not filter
+                        print(event)
+                        try:
+                            event_record = {}
+                            event_record['RecordNumber'] = getattr(event, 'RecordNumber', None)
+                            event_record['EventID'] = getattr(event, 'EventID', 0) & 0xFFFF
+                            event_record['EventCategory'] = getattr(event, 'EventCategory', None)
+                            event_record['EventType'] = getattr(event, 'EventType', None)
+                            event_record['SourceName'] = getattr(event, 'SourceName', None)
+                            event_record['ComputerName'] = getattr(event, 'ComputerName', None)
+                            event_record['Sid'] = str(getattr(event, 'Sid', None)) if getattr(event, 'Sid', None) is not None else None
+                            event_record['StringInserts'] = getattr(event, 'StringInserts', None)
+                            event_record['Data'] = getattr(event, 'Data', None)
+                            event_record['TimeGenerated'] = getattr(event, 'TimeGenerated', None).isoformat() if hasattr(getattr(event, 'TimeGenerated', None), 'isoformat') else str(getattr(event, 'TimeGenerated', None))
+                            event_record['TimeWritten'] = getattr(event, 'TimeWritten', None).isoformat() if hasattr(getattr(event, 'TimeWritten', None), 'isoformat') else str(getattr(event, 'TimeWritten', None))
+                            event_record['Message'] = None
+                            try:
+                                # Attempt to get the formatted message
+                                event_record['Message'] = win32evtlogutil.SafeFormatMessage(event, log_name)
+                            except Exception as msg_ex:
+                                # Handle message parsing error
+                                event_record['Message'] = f"Message parse error: {msg_ex}"
+                            f.write(str(event_record) + "\n")
+                        except Exception as e:
+                            # Handle event parsing error
+                            f.write(f"Error parsing event: {e}\n")
+                        written += 1
+                        if written >= size:
+                            break
 
-        win32evtlog.CloseEventLog(handle)
+            win32evtlog.CloseEventLog(handle)
         return dest_file
     except Exception as e:
-        return f"ERROR: {e}\n{traceback.format_exc()}"
+        logging.debug(traceback.format_exc())
+        return f"ERROR: {e}"
+
 
 
 @mcp.tool()
 def query_syslog(
     timestamp: str,
     log_path: str = Settings.STORAGE_PATH,
-    log_type: str = Settings.LOG_TYPE,
-    server: str = Settings.SERVER,
+    source_name: str = Settings.SOURCE_NAME,
+    server_name: str = Settings.SERVER_NAME,
     size: int = Settings.SIZE
 ):
     """
-    Query Windows Sysmon logs
+    Query Windows logs
 
     Args:
         timestamp (str): the timestamp (YYYY-MM-DD_HH-MM-SS) to filter log files
         log_path (str): log path
-        log_type (str, optional): log type. Defaults to "Microsoft-Windows-Sysmon/Operational".
+        source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
         server (str, optional): server. Defaults to "localhost".
         size (int, optional): number of log lines to return
 
@@ -106,7 +161,17 @@ def query_syslog(
     for file in matched_files:
         with open(os.path.join(log_path, file), "r", encoding="utf-8") as f:
             events = f.readlines()
-            logs.extend(events)
+            for event in events:
+                try:
+                    import ast
+                    event_dict = ast.literal_eval(event.strip()) if event.strip().startswith('{') else None
+                except Exception:
+                    event_dict = None
+                if source_name and event_dict and 'SourceName' in event_dict:
+                    # Filter events by source name
+                    if event_dict['SourceName'] != source_name:
+                        continue
+                logs.append(event.strip())
 
     if not logs:
         return "No events found in matching log files"
@@ -129,27 +194,27 @@ def prompt_guide():
     - ingest_syslog: Ingest Windows log
         - Args:
             - storage_path (str): log storage path
-            - log_type (str, optional): log type. Defaults to "Microsoft-Windows-Sysmon/Operational".
-            - server (str, optional): server. Defaults to "localhost".
+            - source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
+            - server_name (str, optional): server. Defaults to "localhost".
             - size (int, optional): number of log lines to return
         - Returns:
-            - str: log content
+            - str: log file path
     - query_syslog: Query Windows log
         - Args:
             - timestamp (str): the timestamp (YYYY-MM-DD_HH-MM-SS) to filter log files
             - log_path (str): log path
-            - log_type (str, optional): log type. Defaults to "Microsoft-Windows-Sysmon/Operational".
-            - server (str, optional): server. Defaults to "localhost".
+            - source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
+            - server_name (str, optional): server. Defaults to "localhost".
             - size (int, optional): number of log lines to return
         - Returns:
-            - str: log content
+            - str: log file path
     
     if you want to ingest the log, use the following prompt:
     ```
     ingest_syslog(
         storage_path="{Settings.STORAGE_PATH}",
-        log_type="{Settings.LOG_TYPE}",
-        server="{Settings.SERVER}",
+        source_name="{Settings.SOURCE_NAME}",
+        server_name="{Settings.SERVER_NAME}",
         size={Settings.SIZE}
     )
     ```
@@ -159,8 +224,8 @@ def prompt_guide():
     query_syslog(
         timestamp="2025-05-15_14-47-24",
         log_path="{Settings.STORAGE_PATH}",
-        log_type="{Settings.LOG_TYPE}",
-        server="{Settings.SERVER}",
+        source_name="{Settings.SOURCE_NAME}",
+        server_name="{Settings.SERVER_NAME}",
         size={Settings.SIZE}
     )
     ```
@@ -169,3 +234,32 @@ def prompt_guide():
 
 if __name__ == "__main__":
     mcp.run()
+    # # Sysmon（指定來源）
+    # ingest_syslog(
+    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
+    #     log_name="Microsoft-Windows-Sysmon/Operational",
+    #     source_name="Microsoft-Windows-Sysmon",
+    #     server_name="localhost",
+    #     size=10
+    # )
+    # # Application（抓全部來源）
+    # ingest_syslog(
+    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
+    #     log_name="Application",
+    #     server_name="localhost",
+    #     size=10
+    # )
+    # # Security（抓全部來源）
+    # ingest_syslog(
+    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
+    #     log_name="Security",
+    #     server_name="localhost",
+    #     size=10
+    # )
+    # # System（抓全部來源）
+    # ingest_syslog(
+    #     storage_path="D:\\All_In_One\\Documents\\Project\\github\\winlog-mcp\\logs\\",
+    #     log_name="System",
+    #     server_name="localhost",
+    #     size=10
+    # )
