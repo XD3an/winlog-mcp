@@ -2,7 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
 
-A Model Context Protocol (MCP) tool for retrieving and analyzing Windows event logs (e.g. Sysmon). WinLog-mcp provides programmatic access to ingest and query Windows event logs, making it ideal for security monitoring, incident response, and log analysis automation.
+A Model Context Protocol (MCP) tool for retrieving and analyzing Windows event logs (e.g. Application, System, Security). WinLog-mcp provides programmatic access to ingest and query Windows event logs, making it ideal for security monitoring, incident response, and log analysis automation.
+
+> ⚠️ **Warning: This tool must be run with Administrator privileges. Please exercise caution to avoid causing unintended changes to your system.**
 
 ---
 
