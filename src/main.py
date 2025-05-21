@@ -28,7 +28,6 @@ mcp = FastMCP(
 
 @mcp.tool()
 def ingest_syslog(
-    storage_path: str = Settings.STORAGE_PATH,
     source_name: str = Settings.SOURCE_NAME,
     log_name: str = Settings.LOG_NAME,
     server_name: str = Settings.SERVER_NAME,
@@ -38,7 +37,6 @@ def ingest_syslog(
     Ingest Windows logs
 
     Args:
-        storage_path (str): log storage path
         source_name (str, optional): event source name. Empty string means no filter (all sources).
         log_name (str, optional): event log name. Defaults to "Microsoft-Windows-Sysmon/Operational".
         server_name (str, optional): server. Defaults to "localhost".
@@ -49,12 +47,12 @@ def ingest_syslog(
     """
 
     try:
-        if os.path.isfile(storage_path):
-            return f"ERROR: storage_path points to a file instead of a directory ({storage_path}), please use a directory path."
-        os.makedirs(storage_path, exist_ok=True)
+        if os.path.isfile(Settings.STORAGE_PATH):
+            return f"ERROR: storage_path points to a file instead of a directory ({Settings.STORAGE_PATH}), please use a directory path."
+        os.makedirs(Settings.STORAGE_PATH, exist_ok=True)
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         safe_log_name = log_name.replace("/", "_").replace("\\", "_")
-        dest_file = os.path.join(storage_path, f"{timestamp}_{safe_log_name}.log")
+        dest_file = os.path.join(Settings.STORAGE_PATH, f"{timestamp}_{safe_log_name}.log")
 
         # Check admin privileges
         if not ctypes.windll.shell32.IsUserAnAdmin():
@@ -131,9 +129,7 @@ def ingest_syslog(
 @mcp.tool()
 def query_syslog(
     timestamp: str,
-    log_path: str = Settings.STORAGE_PATH,
     source_name: str = Settings.SOURCE_NAME,
-    server_name: str = Settings.SERVER_NAME,
     size: int = Settings.SIZE
 ):
     """
@@ -141,15 +137,13 @@ def query_syslog(
 
     Args:
         timestamp (str): the timestamp (YYYY-MM-DD_HH-MM-SS) to filter log files
-        log_path (str): log path
         source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
-        server (str, optional): server. Defaults to "localhost".
         size (int, optional): number of log lines to return
 
     Returns:
         str: log content
     """
-    files = os.listdir(log_path)
+    files = os.listdir(Settings.STORAGE_PATH)
     matched_files = [
         f for f in files
         if f.endswith(".log") and timestamp in f
@@ -159,7 +153,7 @@ def query_syslog(
 
     logs = []
     for file in matched_files:
-        with open(os.path.join(log_path, file), "r", encoding="utf-8") as f:
+        with open(os.path.join(Settings.STORAGE_PATH, file), "r", encoding="utf-8") as f:
             events = f.readlines()
             for event in events:
                 try:
@@ -193,18 +187,14 @@ def prompt_guide():
     You can use the following tools:
     - ingest_syslog: Ingest Windows log
         - Args:
-            - storage_path (str): log storage path
             - source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
-            - server_name (str, optional): server. Defaults to "localhost".
             - size (int, optional): number of log lines to return
         - Returns:
             - str: log file path
     - query_syslog: Query Windows log
         - Args:
             - timestamp (str): the timestamp (YYYY-MM-DD_HH-MM-SS) to filter log files
-            - log_path (str): log path
             - source_name (str, optional): event source name. Defaults to "Microsoft-Windows-Sysmon".
-            - server_name (str, optional): server. Defaults to "localhost".
             - size (int, optional): number of log lines to return
         - Returns:
             - str: log file path
@@ -212,9 +202,7 @@ def prompt_guide():
     if you want to ingest the log, use the following prompt:
     ```
     ingest_syslog(
-        storage_path="{Settings.STORAGE_PATH}",
         source_name="{Settings.SOURCE_NAME}",
-        server_name="{Settings.SERVER_NAME}",
         size={Settings.SIZE}
     )
     ```
@@ -223,9 +211,7 @@ def prompt_guide():
     ```
     query_syslog(
         timestamp="2025-05-15_14-47-24",
-        log_path="{Settings.STORAGE_PATH}",
         source_name="{Settings.SOURCE_NAME}",
-        server_name="{Settings.SERVER_NAME}",
         size={Settings.SIZE}
     )
     ```
